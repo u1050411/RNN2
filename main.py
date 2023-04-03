@@ -99,17 +99,25 @@ class RNNModel:
         data = data.drop(date_col, axis=1)
         return data
 
+    def split_data(self):
+        """Divideix les dades en entrenament i prova"""
+        X = self.data[[f"{self.date_col}_year", f"{self.date_col}_month", f"{self.date_col}_day", self.cat_feature]]
+        y = self.data[self.num_features]
+        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
     def preprocess_data(self):
         """Preprocessament de les dades"""
         self.preprocessor = ColumnTransformer(transformers=[
             ('cat', OneHotEncoder(handle_unknown='ignore'), [3]),
             ('num', 'passthrough', [0, 1, 2])
         ], remainder='drop')
-
         self.X_train_transformed = self.preprocessor.fit_transform(self.X_train)
         self.X_test_transformed = self.preprocessor.transform(self.X_test)
 
     def weighted_mse(self, y_true, y_pred, weights):
+        """Función de pérdida personalizada para ponderar las columnas numéricas"""
+        y_true = K.cast(y_true, 'float32')
+        y_pred = K.cast(y_pred, 'float32')
         return K.mean(K.square(y_true - y_pred) * K.constant(weights), axis=-1)
 
     def objective(self, trial):
@@ -130,7 +138,7 @@ class RNNModel:
                 self.X_train_transformed.reshape(-1, self.X_train_transformed.shape[1], 1),
                 self.y_train,
                 epochs=n_epochs,
-                verbose=1,
+                verbose=0,
                 validation_data=(self.X_test_transformed.reshape(-1, self.X_test_transformed.shape[1], 1), self.y_test),
                 callbacks=[early_stop],
             )
@@ -179,19 +187,11 @@ class RNNModel:
         # Extraer características numéricas de las fechas
         self.data = self.extract_date_features(self.data, self.date_col)
 
-        # Divideix les dades en entrenament i prova
-        X = self.data[[f"{self.date_col}_year", f"{self.date_col}_month", f"{self.date_col}_day", self.cat_feature]]
-        y = self.data[self.num_features]
+        # Dividir los datos en conjuntos de entrenamiento y prueba
+        self.split_data()
 
-        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-        # Preprocessament de les dades
-        self.preprocessor = ColumnTransformer(transformers=[
-            ('cat', OneHotEncoder(handle_unknown='ignore'), [3]),
-            ('num', 'passthrough', [0, 1, 2])
-        ], remainder='drop')
-        self.X_train_transformed = self.preprocessor.fit_transform(self.X_train)
-        self.X_test_transformed = self.preprocessor.transform(self.X_test)
+        # Preprocesamiento de datos
+        self.preprocess_data()
 
         # Guardar las categorías únicas para futuras predicciones
         self.unique_categories = sorted(self.data[self.cat_feature].unique())
@@ -268,7 +268,6 @@ class RNNModel:
         # Guardar el DataFrame en un archivo Excel
         self.future_data.to_excel(output_file, engine='openpyxl', index=False)
 
-
     def plot_comparison(self):
         y_pred = self.model.predict(self.X_test_transformed.reshape(-1, self.X_test_transformed.shape[1], 1))
         n_plots = len(self.num_features)
@@ -283,7 +282,6 @@ class RNNModel:
             plt.title(f"Comparació de dades reals i prediccions per a {self.num_features[i]}")
             current_time = datetime.now().strftime("%d-%m-%Y_%H-%M")
             plt.savefig(f".\\GRAFIC\\grafic_{self.num_features[i]}_{current_time}.png")
-
 
 if __name__ == '__main__':
     predictor = RNNModel(input_file=".\\dades\\Dades_Per_entrenar.csv")
