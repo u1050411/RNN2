@@ -43,8 +43,12 @@ class RNNModel:
         self.cat_feature = self.data.columns[1]
         self.num_features = [col for col in self.data.columns[2:]]
 
-    def split_data(self):
-        """Divideix les dades en entrenament i prova"""
+    def split_and_preprocess_data(self):
+        self.data[self.date_col] = pd.to_datetime(self.data[self.date_col])
+        self.data[f"{self.date_col}_year"] = self.data[self.date_col].dt.year
+        self.data[f"{self.date_col}_month"] = self.data[self.date_col].dt.month
+        self.data[f"{self.date_col}_day"] = self.data[self.date_col].dt.day
+        """Divideix les dades en entrenament i prova y las preprocesa"""
         X = self.data[[f"{self.date_col}_year", f"{self.date_col}_month", f"{self.date_col}_day", self.cat_feature]]
         y = self.data[self.num_features]
 
@@ -67,6 +71,17 @@ class RNNModel:
         self.X_test = X[test_mask]
         self.y_train = y[train_mask]
         self.y_test = y[test_mask]
+
+        # Preprocessament de les dades
+        self.preprocessor = ColumnTransformer(transformers=[
+            ('cat', OneHotEncoder(handle_unknown='ignore'), [3]),
+            ('num', 'passthrough', [0, 1, 2])
+        ], remainder='drop')
+        self.X_train_transformed = self.preprocessor.fit_transform(self.X_train)
+        self.X_test_transformed = self.preprocessor.transform(self.X_test)
+
+        # Guardar las categorías únicas para futuras predicciones
+        self.unique_categories = sorted(self.data[self.cat_feature].unique())
 
     def train_model(self, n_trials=5000):
         study = optuna.create_study(direction="minimize")
@@ -98,12 +113,6 @@ class RNNModel:
         data[date_col + '_day'] = data[date_col].dt.day
         data = data.drop(date_col, axis=1)
         return data
-
-    def split_data(self):
-        """Divideix les dades en entrenament i prova"""
-        X = self.data[[f"{self.date_col}_year", f"{self.date_col}_month", f"{self.date_col}_day", self.cat_feature]]
-        y = self.data[self.num_features]
-        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
     def preprocess_data(self):
         """Preprocessament de les dades"""
@@ -177,25 +186,8 @@ class RNNModel:
         else:
             lr = params["lr"]
 
-        model.compile(optimizer=Adam(learning_rate=lr), loss='mse')
         model.compile(optimizer=Adam(learning_rate=lr), loss=self.weighted_mse)
         return model
-
-
-    def adjust_data(self):
-        """Ajusta les dades"""
-        # Extraer características numéricas de las fechas
-        self.data = self.extract_date_features(self.data, self.date_col)
-
-        # Dividir los datos en conjuntos de entrenamiento y prueba
-        self.split_data()
-
-        # Preprocesamiento de datos
-        self.preprocess_data()
-
-        # Guardar las categorías únicas para futuras predicciones
-        self.unique_categories = sorted(self.data[self.cat_feature].unique())
-
 
     def generate_future_data(self):
         """Genera dades futures"""
@@ -283,14 +275,13 @@ class RNNModel:
             current_time = datetime.now().strftime("%d-%m-%Y_%H-%M")
             plt.savefig(f".\\GRAFIC\\grafic_{self.num_features[i]}_{current_time}.png")
 
+
 if __name__ == '__main__':
     predictor = RNNModel(input_file=".\\dades\\Dades_Per_entrenar.csv")
     predictor.read_data()
     predictor.remove_nan()
     predictor.set_columns()
-    predictor.adjust_data()
-    predictor.split_data()
-    predictor.preprocess_data()
+    predictor.split_and_preprocess_data()  # Reemplazar adjust_data y split_data por esta función
     predictor.train_model(2)
     predictor.generate_future_data()
     predictor.predict_future_data()
